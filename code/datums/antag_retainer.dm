@@ -76,60 +76,43 @@ var/global/list/found_lords = list()
 				found_lords -= ckey
 
 /proc/check_for_lord(forced = FALSE)
-	if(!forced && (world.time < SSticker.next_lord_check))
+	if(!SSticker.next_lord_check || world.time < SSticker.next_lord_check)
 		return
 	SSticker.next_lord_check = world.time + 1 MINUTES
-	var/lord_found = FALSE
+	
 	var/living_lord_found = FALSE
 	
+	// Check for living lords and track all lords
 	for(var/mob/living/carbon/human/H in GLOB.human_list)
 		if(H.mind && (H.mind.assigned_role == "Grand Duke" || H.mind.assigned_role == "Grand Duchess"))
 			if(H.ckey)
 				found_lords[H.ckey] = TRUE
-			lord_found = TRUE
 			
-			// Check if the lord is actually functional (alive, not a brain, and has a head)
+			// Check if the lord is actually functional
 			if(H.stat != DEAD && !isbrain(H) && H.get_bodypart(BODY_ZONE_HEAD))
 				living_lord_found = TRUE
 				if(hasomen(OMEN_NOLORD))
 					removeomen(OMEN_NOLORD)
 				break
 	
+	// Check for dead/missing lords if no living ones found and omen doesn't exist
 	if(!living_lord_found && found_lords.len > 0 && !hasomen(OMEN_NOLORD))
-		// Check if any of our found lords are currently dead/headless in the game
 		for(var/ckey in found_lords)
-			var/mob/living/carbon/human/dead_lord = null
-			// Find the human with this ckey
-			for(var/mob/living/carbon/human/H in GLOB.human_list)
-				if(H.ckey == ckey)
-					dead_lord = H
-					break
-			
-			// If the lord is still in the game but dead/headless, or if they're completely gone (likely dead from decapitation)
-			if(dead_lord && (dead_lord.stat == DEAD || dead_lord.stat == 3 || !dead_lord.get_bodypart(BODY_ZONE_HEAD)))
-				lord_found = TRUE
-				break
-			else if(!dead_lord)
-				// If a lord was found alive before but is now completely gone from the game,
-				// they're likely dead (from decapitation) rather than voluntarily left
-				// (Far Travel would have removed them from found_lords)
-				lord_found = TRUE
+			var/mob/living/carbon/human/dead_lord = locate(ckey) in GLOB.human_list
+			if(!dead_lord || dead_lord.stat == DEAD || dead_lord.stat == 3 || !dead_lord.get_bodypart(BODY_ZONE_HEAD))
+				// Found a dead/missing lord, handle missing lord logic
+				if(!SSticker.missing_lord_time)
+					SSticker.missing_lord_time = world.time
+				
+				if(forced || (world.time > SSticker.missing_lord_time + 10 MINUTES))
+					SSticker.missing_lord_time = world.time
+					addomen(OMEN_NOLORD)
+					// Announce the omen to players
+					var/datum/round_event_control/R = new()
+					R.badomen(OMEN_NOLORD)
 				break
 	
-	if(lord_found && !living_lord_found)
-		if(!SSticker.missing_lord_time)
-			SSticker.missing_lord_time = world.time
-		
-		if(forced || (world.time > SSticker.missing_lord_time + 10 MINUTES))
-			SSticker.missing_lord_time = world.time
-			addomen(OMEN_NOLORD)
-			//Announce the omen to players
-			var/datum/round_event_control/R = new()
-			R.badomen(OMEN_NOLORD)
-	
-	// Clean up the found_lords list at the end
 	cleanup_found_lords()
-	
 	return living_lord_found
 
 /proc/age_check(client/C)
